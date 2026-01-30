@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    /* Layout de Arquivos */
+    "outDir": "./dist",
+    "rootDir": "./",
+
+    /* Configurações de Ambiente */
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "types": ["node"],
+
+    /* Interoperabilidade e Saída */
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+
+    /* Opções de Verificação Estrita */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "skipLibCheck": true,
+
+    /* Recomendado para Módulos Modernos */
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "moduleDetection": "force"
+  },
+  "include": ["index.ts"],
+  "exclude": ["node_modules", "dist"]
+}
