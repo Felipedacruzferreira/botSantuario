@@ -157,6 +157,39 @@ client.on('messageCreate', async (message: Message) => {
     }
 });
 
+
+client.on('messageReactionAdd', async (reaction, user) => {
+    if (user.bot) return;
+    if (reaction.partial) await reaction.fetch();
+
+    const ID_DA_MENSAGEM = "1466981759957860619";
+    const EMOTE_ALVO = "⛩️";
+    const ID_DO_CARGO = "1466552837503975595";
+
+    if (reaction.message.id === ID_DA_MENSAGEM && reaction.emoji.name === EMOTE_ALVO) {
+        const guild = reaction.message.guild;
+        const member = await guild?.members.fetch(user.id);
+        await member?.roles.add(ID_DO_CARGO);
+        console.log(`✅ ${user.username} ganhou o cargo!`);
+    }
+});
+
+client.on('messageReactionRemove', async (reaction, user) => {
+    if (user.bot) return;
+    if (reaction.partial) await reaction.fetch();
+
+    const ID_DA_MENSAGEM = "1466981759957860619";
+    const EMOTE_ALVO = "⛩️";
+    const ID_DO_CARGO = "1466552837503975595";
+
+    if (reaction.message.id === ID_DA_MENSAGEM && reaction.emoji.name === EMOTE_ALVO) {
+        const guild = reaction.message.guild;
+        const member = await guild?.members.fetch(user.id);
+        await member?.roles.remove(ID_DO_CARGO);
+        console.log(`❌ ${user.username} perdeu o cargo!`);
+    }
+});
+
 client.on('interactionCreate', async (interaction: Interaction) => {
     if (!interaction.isButton()) return;
     const [acao, id] = interaction.customId.split('_');
