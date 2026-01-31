@@ -41,10 +41,10 @@ const client = new Client({
 });
 
 const SEU_ID_ADMIN = "1088425447760605275";
-const CARGO_ID = "1466548804328358185";
+const CARGO_ID = "1466552837503975595";
 
 // --- FUNÇÃO AGENDAR ---
-function agendarNotificacoes(partyId: string, horario: string, membros: string[], canalId: string) {
+function agendarNotificacoes(partyId: string, horario: string, canalId: string) {
     const timeParts = horario.split(':').map(Number);
     const h = timeParts[0];
     const m = timeParts[1];
@@ -55,9 +55,10 @@ function agendarNotificacoes(partyId: string, horario: string, membros: string[]
     let dmHora = h;
     if (dmMin < 0) { dmMin += 60; dmHora -= 1; }
 
+    // Aviso 15min antes
     cron.schedule(`${dmMin} ${dmHora} * * *`, async () => {
         const p = await PartyModel.findOne({ partyId });
-        if (p && p.membros) {
+        if (p && p.membros.length > 0) {
             for (const id of p.membros) {
                 try {
                     const u = await client.users.fetch(id);
@@ -67,11 +68,11 @@ function agendarNotificacoes(partyId: string, horario: string, membros: string[]
         }
     });
 
+    // Hora do Boss
     cron.schedule(`${m} ${h} * * *`, async () => {
         const p = await PartyModel.findOne({ partyId });
-        if (p && p.membros) {
+        if (p && p.membros.length > 0) {
             const channelRaw = await client.channels.fetch(canalId);
-            // Fazemos o cast para TextChannel para garantir que o método .send() exista
             if (channelRaw && channelRaw.isTextBased()) {
                 const canal = channelRaw as TextChannel;
                 const mencoes = p.membros.map((id: string) => `<@${id}>`).join(', ');
@@ -85,31 +86,38 @@ function agendarNotificacoes(partyId: string, horario: string, membros: string[]
 client.once('ready', async () => {
     console.log(`🤖 Bot online como ${client.user?.tag}`);
     try {
-        console.log("⏳ Tentando conectar ao MongoDB...");
-        if (!process.env.MONGO_URI) throw new Error("MONGO_URI não encontrada no .env!");
-
-        await mongoose.connect(process.env.MONGO_URI);
+        await mongoose.connect(process.env.MONGO_URI!);
         console.log("🍃 Conectado ao MongoDB Atlas");
     } catch (err) {
-        console.error("❌ ERRO CRÍTICO NO MONGO:", err);
+        console.error("❌ ERRO NO MONGO:", err);
+    }
+});
+
+// Limpeza automática todos os dias às 3 da manhã
+cron.schedule('0 3 * * *', async () => {
+    console.log("🧹 Iniciando limpeza diária de PTs antigas...");
+    try {
+        const resultado = await PartyModel.deleteMany({});
+        console.log(`✅ Limpeza concluída: ${resultado.deletedCount} registros removidos.`);
+    } catch (err) {
+        console.error("❌ Erro na limpeza automática:", err);
     }
 });
 
 client.on('messageCreate', async (message: Message) => {
-    if (message.author.bot) return;
-
-    if (message.content.startsWith('!WhisperAdmin') && message.author.id === SEU_ID_ADMIN) {
-        const args = message.content.split(' ');
-        const targetId = args[1];
-        const texto = args.slice(2).join(' ');
-        if (!targetId || !texto) return;
+    if (message.content === '!LimparBanco' && message.author.id === SEU_ID_ADMIN) {
         try {
-            const user = await client.users.fetch(targetId);
-            await user.send(`✉️ **Mensagem da Administração:** ${texto}`);
-            await message.react('✅');
-        } catch (e) { console.error(e); }
+            const resultado = await PartyModel.deleteMany({});
+            await message.reply(`✅ Faxina concluída! Removidas **${resultado.deletedCount}** PTs do MongoDB.`);
+        } catch (e) {
+            console.error(e);
+            await message.reply('❌ Erro ao limpar o banco.');
+        }
         return;
     }
+
+
+    if (message.author.bot) return;
 
     if (message.content.startsWith('!PtSantuario')) {
         const horario = message.content.split(' ')[1];
@@ -124,7 +132,7 @@ client.on('messageCreate', async (message: Message) => {
             canalId: message.channel.id
         });
 
-        agendarNotificacoes(partyId, horario, [message.author.id], message.channel.id);
+        agendarNotificacoes(partyId, horario, message.channel.id);
 
         const embed = new EmbedBuilder()
             .setTitle('⚔️ BOSS SANTUÁRIO')
@@ -132,32 +140,54 @@ client.on('messageCreate', async (message: Message) => {
             .setColor(0x0099FF);
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId(`join_${partyId}`).setLabel('JOIN PT').setStyle(ButtonStyle.Success)
+            new ButtonBuilder().setCustomId(`join_${partyId}`).setLabel('JOIN PT').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`leave_${partyId}`).setLabel('SAIR/CANCELAR').setStyle(ButtonStyle.Danger)
         );
 
-        // Usamos o cast para garantir que o canal da mensagem atual permite o .send()
-        const canalOriginal = message.channel as TextChannel;
-        await canalOriginal.send({ content: `📢 <@&${CARGO_ID}> Nova PT!`, embeds: [embed], components: [row] });
+        if (message.channel.isTextBased()) {
+            const canal = message.channel as TextChannel;
+            await canal.send({ content: `📢 <@&${CARGO_ID}> Nova PT!`, embeds: [embed], components: [row] });
+        }
     }
 });
 
 client.on('interactionCreate', async (interaction: Interaction) => {
     if (!interaction.isButton()) return;
-    const parts = interaction.customId.split('_');
-    const acao = parts[0];
-    const id = parts[1];
-    if (acao !== 'join' || !id) return;
+    const [acao, id] = interaction.customId.split('_');
 
-    const p = await PartyModel.findOne({ partyId: id });
-    if (!p || !p.membros) return interaction.reply({ content: 'PT não encontrada.', ephemeral: true });
+    if (!id) return; // Segurança extra
+    const p = await PartyModel.findOne({ partyId: id as string });
+    if (!p) return interaction.reply({ content: 'PT não encontrada ou já iniciada.', ephemeral: true });
 
-    if (p.membros.includes(interaction.user.id)) return interaction.reply({ content: 'Já está na PT!', ephemeral: true });
-    if (p.membros.length >= 5) return interaction.reply({ content: 'Lotada!', ephemeral: true });
+    // --- LÓGICA DE SAIR OU CANCELAR ---
+    if (acao === 'leave') {
+        if (interaction.user.id === p.criador) {
+            await PartyModel.deleteOne({ partyId: id });
+            return interaction.update({ content: '❌ PT Cancelada pelo criador.', embeds: [], components: [] });
+        }
 
-    p.membros.push(interaction.user.id);
-    await p.save();
+        if (!p.membros.includes(interaction.user.id)) {
+            return interaction.reply({ content: 'Você não está nesta PT!', ephemeral: true });
+        }
 
-    const lista = p.membros.map((mid: string, i: number) => `${i + 1}. <@${mid}>`).join('\n');
+        p.membros = p.membros.filter(mId => mId !== interaction.user.id);
+        await p.save();
+    }
+    // --- LÓGICA DE ENTRAR ---
+    else if (acao === 'join') {
+        if (p.membros.includes(interaction.user.id)) {
+            return interaction.reply({ content: 'Já está na PT!', ephemeral: true });
+        }
+        if (p.membros.length >= 5) {
+            return interaction.reply({ content: 'A PT já está lotada!', ephemeral: true });
+        }
+
+        p.membros.push(interaction.user.id);
+        await p.save();
+    }
+
+    // --- ATUALIZAÇÃO DO EMBED (Comum para Join e Leave) ---
+    const lista = p.membros.map((mid, i) => `${i + 1}. <@${mid}>`).join('\n');
     const embedOriginal = interaction.message.embeds[0];
     if (!embedOriginal) return;
 
