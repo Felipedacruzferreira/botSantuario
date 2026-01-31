@@ -66,6 +66,8 @@ function agendarNotificacoes(partyId: string, horario: string, canalId: string) 
                 } catch (e) { console.error(`Erro DM para ${id}`); }
             }
         }
+    }, {
+        timezone: "America/Sao_Paulo"
     });
 
     // Hora do Boss
@@ -80,6 +82,8 @@ function agendarNotificacoes(partyId: string, horario: string, canalId: string) 
                 await PartyModel.deleteOne({ partyId });
             }
         }
+    }, {
+        timezone: "America/Sao_Paulo"
     });
 }
 
@@ -102,6 +106,8 @@ cron.schedule('0 3 * * *', async () => {
     } catch (err) {
         console.error("❌ Erro na limpeza automática:", err);
     }
+}, {
+    timezone: "America/Sao_Paulo"
 });
 
 client.on('messageCreate', async (message: Message) => {
