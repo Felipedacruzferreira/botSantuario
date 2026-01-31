@@ -1,7 +1,8 @@
 import {
     Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder,
     ButtonBuilder, ButtonStyle, type Message, type Interaction, type TextChannel,
-    Partials
+    Partials,
+    DMChannel
 } from 'discord.js';
 import * as dotenv from 'dotenv';
 import cron from 'node-cron';
@@ -239,5 +240,48 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
     await interaction.update({ embeds: [newEmbed] });
 });
+
+client.on('messageReactionAdd', async (reaction, user) => {
+    if (user.bot) return;
+    if (reaction.partial) await reaction.fetch();
+
+    const MSG_RECRUTAMENTO_ID = "1466987349555806331";
+    const EMOTE_RECRUTAMENTO = "🐦‍⬛";
+    const CARGO_NOVATO_ID = "1466986467397079274";
+
+    if (reaction.message.id === MSG_RECRUTAMENTO_ID && reaction.emoji.name === EMOTE_RECRUTAMENTO) {
+        try {
+            const msgInstrucao = await user.send("🐦‍⬛ **RECRUTAMENTO:** Bem-vindo ao clã! Para ganhar seu cargo, responda a esta mensagem APENAS com o seu **Nome de Família** no jogo.");
+
+            // CORREÇÃO DO ERRO: Forçamos o TS a entender que é um DMChannel
+            const canalDM = msgInstrucao.channel as DMChannel;
+
+            const filter = (m: Message) => m.author.id === user.id;
+            const collector = canalDM.createMessageCollector({ filter, max: 1, time: 60000 });
+
+            collector.on('collect', async (m: Message) => {
+                const nomeFamilia = m.content;
+                const guild = reaction.message.guild;
+                if (!guild) return;
+
+                const member = await guild.members.fetch(user.id);
+                if (member) {
+                    await member.setNickname(nomeFamilia);
+                    await member.roles.add(CARGO_NOVATO_ID);
+                    await user.send(`✅ Tudo pronto! Seu apelido foi alterado para **${nomeFamilia}** e você agora é um membro oficial.`);
+                }
+            });
+
+            collector.on('end', (collected) => {
+                if (collected.size === 0) {
+                    user.send("⏰ Tempo esgotado. Reaja novamente no canal de recrutamento para tentar de novo.");
+                }
+            });
+        } catch (e) {
+            console.error("Erro no recrutamento:", e);
+        }
+    }
+});
+
 
 client.login(process.env.DISCORD_TOKEN!);
