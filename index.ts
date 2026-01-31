@@ -1,8 +1,7 @@
 import {
     Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder,
     ButtonBuilder, ButtonStyle, type Message, type Interaction, type TextChannel,
-    Partials,
-    DMChannel
+    Partials, DMChannel
 } from 'discord.js';
 import * as dotenv from 'dotenv';
 import cron from 'node-cron';
@@ -13,57 +12,48 @@ dotenv.config();
 
 // --- MONGODB SCHEMA ---
 interface IParty extends mongoose.Document {
-    partyId: string;
-    criador: string;
-    horario: string;
-    membros: string[];
-    canalId: string;
+    partyId: string; criador: string; horario: string; membros: string[]; canalId: string;
 }
 
 const partySchema = new mongoose.Schema({
-    partyId: String,
-    criador: String,
-    horario: String,
-    membros: [String],
-    canalId: String
+    partyId: String, criador: String, horario: String, membros: [String], canalId: String
 });
 const PartyModel = mongoose.model<IParty>('Party', partySchema);
 
 // --- EXPRESS KEEP-ALIVE ---
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (_req: Request, res: Response) => res.send('🤖 Bot Online com MongoDB!'));
+app.get('/', (_req: Request, res: Response) => res.send('🤖 Bot Online!'));
 app.listen(Number(port), '0.0.0.0');
 
+// --- CLIENT SETUP COM PARTIALS ---
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildMessageReactions,
         GatewayIntentBits.MessageContent,
+        GatewayIntentBits.DirectMessages,
     ],
-    partials: [Partials.Message, Partials.Reaction, Partials.User],
+    partials: [Partials.Message, Partials.Reaction, Partials.User, Partials.Channel],
 });
 
 const SEU_ID_ADMIN = "1088425447760605275";
-const CARGO_ID = "1466552837503975595";
+const CARGO_SANTUARIO_ID = "1466552837503975595";
+const GUILD_ID = "1451560376461426905"; // Seu ID de servidor
 
 // --- FUNÇÃO AGENDAR ---
 function agendarNotificacoes(partyId: string, horario: string, canalId: string) {
     const timeParts = horario.split(':').map(Number);
-    const h = timeParts[0];
-    const m = timeParts[1];
-
+    const h = timeParts[0]; const m = timeParts[1];
     if (h === undefined || m === undefined || isNaN(h) || isNaN(m)) return;
 
-    let dmMin = m - 15;
-    let dmHora = h;
+    let dmMin = m - 15; let dmHora = h;
     if (dmMin < 0) { dmMin += 60; dmHora -= 1; }
 
-    // Aviso 15min antes
     cron.schedule(`${dmMin} ${dmHora} * * *`, async () => {
         const p = await PartyModel.findOne({ partyId });
-        if (p && p.membros.length > 0) {
+        if (p?.membros.length) {
             for (const id of p.membros) {
                 try {
                     const u = await client.users.fetch(id);
@@ -71,25 +61,20 @@ function agendarNotificacoes(partyId: string, horario: string, canalId: string) 
                 } catch (e) { console.error(`Erro DM para ${id}`); }
             }
         }
-    }, {
-        timezone: "America/Sao_Paulo"
-    });
+    }, { timezone: "America/Sao_Paulo" });
 
-    // Hora do Boss
     cron.schedule(`${m} ${h} * * *`, async () => {
         const p = await PartyModel.findOne({ partyId });
-        if (p && p.membros.length > 0) {
+        if (p?.membros.length) {
             const channelRaw = await client.channels.fetch(canalId);
-            if (channelRaw && channelRaw.isTextBased()) {
+            if (channelRaw?.isTextBased()) {
                 const canal = channelRaw as TextChannel;
                 const mencoes = p.membros.map((id: string) => `<@${id}>`).join(', ');
                 await canal.send(`⚔️ **HORA DO BOSS!** PT das ${horario}: ${mencoes}`);
                 await PartyModel.deleteOne({ partyId });
             }
         }
-    }, {
-        timezone: "America/Sao_Paulo"
-    });
+    }, { timezone: "America/Sao_Paulo" });
 }
 
 client.once('ready', async () => {
@@ -97,38 +82,22 @@ client.once('ready', async () => {
     try {
         await mongoose.connect(process.env.MONGO_URI!);
         console.log("🍃 Conectado ao MongoDB Atlas");
-    } catch (err) {
-        console.error("❌ ERRO NO MONGO:", err);
-    }
+    } catch (err) { console.error("❌ ERRO NO MONGO:", err); }
 });
 
-// Limpeza automática todos os dias às 3 da manhã
+// Limpeza automática (3h AM)
 cron.schedule('0 3 * * *', async () => {
-    console.log("🧹 Iniciando limpeza diária de PTs antigas...");
-    try {
-        const resultado = await PartyModel.deleteMany({});
-        console.log(`✅ Limpeza concluída: ${resultado.deletedCount} registros removidos.`);
-    } catch (err) {
-        console.error("❌ Erro na limpeza automática:", err);
-    }
-}, {
-    timezone: "America/Sao_Paulo"
-});
+    await PartyModel.deleteMany({});
+    console.log("🧹 Limpeza concluída.");
+}, { timezone: "America/Sao_Paulo" });
 
 client.on('messageCreate', async (message: Message) => {
-    if (message.content === '!LimparBanco' && message.author.id === SEU_ID_ADMIN) {
-        try {
-            const resultado = await PartyModel.deleteMany({});
-            await message.reply(`✅ Faxina concluída! Removidas **${resultado.deletedCount}** PTs do MongoDB.`);
-        } catch (e) {
-            console.error(e);
-            await message.reply('❌ Erro ao limpar o banco.');
-        }
-        return;
-    }
-
-
     if (message.author.bot) return;
+
+    if (message.content === '!LimparBanco' && message.author.id === SEU_ID_ADMIN) {
+        const res = await PartyModel.deleteMany({});
+        return message.reply(`✅ Removidas ${res.deletedCount} PTs.`);
+    }
 
     if (message.content.startsWith('!PtSantuario')) {
         const horario = message.content.split(' ')[1];
@@ -136,11 +105,8 @@ client.on('messageCreate', async (message: Message) => {
 
         const partyId = message.id;
         await PartyModel.create({
-            partyId,
-            criador: message.author.id,
-            horario,
-            membros: [message.author.id],
-            canalId: message.channel.id
+            partyId, criador: message.author.id, horario,
+            membros: [message.author.id], canalId: message.channel.id
         });
 
         agendarNotificacoes(partyId, horario, message.channel.id);
@@ -155,133 +121,84 @@ client.on('messageCreate', async (message: Message) => {
             new ButtonBuilder().setCustomId(`leave_${partyId}`).setLabel('SAIR/CANCELAR').setStyle(ButtonStyle.Danger)
         );
 
-        if (message.channel.isTextBased()) {
-            const canal = message.channel as TextChannel;
-            await canal.send({ content: `📢 <@&${CARGO_ID}> Nova PT!`, embeds: [embed], components: [row] });
-        }
+        const canal = message.channel as TextChannel;
+        await canal.send({ content: `📢 <@&${CARGO_SANTUARIO_ID}> Nova PT!`, embeds: [embed], components: [row] });
     }
 });
 
-
+// --- LÓGICA DE REAÇÕES (UNIFICADA) ---
 client.on('messageReactionAdd', async (reaction, user) => {
     if (user.bot) return;
     if (reaction.partial) await reaction.fetch();
 
-    const ID_DA_MENSAGEM = "1466981759957860619";
-    const EMOTE_ALVO = "⛩️";
-    const ID_DO_CARGO = "1466552837503975595";
+    const guild = client.guilds.cache.get(GUILD_ID);
+    if (!guild) return;
 
-    if (reaction.message.id === ID_DA_MENSAGEM && reaction.emoji.name === EMOTE_ALVO) {
-        const guild = reaction.message.guild;
-        const member = await guild?.members.fetch(user.id);
-        await member?.roles.add(ID_DO_CARGO);
-        console.log(`✅ ${user.username} ganhou o cargo!`);
-    }
-});
-
-client.on('messageReactionRemove', async (reaction, user) => {
-    if (user.bot) return;
-    if (reaction.partial) await reaction.fetch();
-
-    const ID_DA_MENSAGEM = "1466981759957860619";
-    const EMOTE_ALVO = "⛩️";
-    const ID_DO_CARGO = "1466552837503975595";
-
-    if (reaction.message.id === ID_DA_MENSAGEM && reaction.emoji.name === EMOTE_ALVO) {
-        const guild = reaction.message.guild;
-        const member = await guild?.members.fetch(user.id);
-        await member?.roles.remove(ID_DO_CARGO);
-        console.log(`❌ ${user.username} perdeu o cargo!`);
-    }
-});
-
-client.on('interactionCreate', async (interaction: Interaction) => {
-    if (!interaction.isButton()) return;
-    const [acao, id] = interaction.customId.split('_');
-
-    if (!id) return; // Segurança extra
-    const p = await PartyModel.findOne({ partyId: id as string });
-    if (!p) return interaction.reply({ content: 'PT não encontrada ou já iniciada.', ephemeral: true });
-
-    // --- LÓGICA DE SAIR OU CANCELAR ---
-    if (acao === 'leave') {
-        if (interaction.user.id === p.criador) {
-            await PartyModel.deleteOne({ partyId: id });
-            return interaction.update({ content: '❌ PT Cancelada pelo criador.', embeds: [], components: [] });
-        }
-
-        if (!p.membros.includes(interaction.user.id)) {
-            return interaction.reply({ content: 'Você não está nesta PT!', ephemeral: true });
-        }
-
-        p.membros = p.membros.filter(mId => mId !== interaction.user.id);
-        await p.save();
-    }
-    // --- LÓGICA DE ENTRAR ---
-    else if (acao === 'join') {
-        if (p.membros.includes(interaction.user.id)) {
-            return interaction.reply({ content: 'Já está na PT!', ephemeral: true });
-        }
-        if (p.membros.length >= 5) {
-            return interaction.reply({ content: 'A PT já está lotada!', ephemeral: true });
-        }
-
-        p.membros.push(interaction.user.id);
-        await p.save();
+    // 1. Cargo Santuário (⛩️)
+    const MSG_SANTUARIO_ID = "1466981759957860619";
+    if (reaction.message.id === MSG_SANTUARIO_ID && reaction.emoji.name === "⛩️") {
+        const member = await guild.members.fetch(user.id);
+        await member.roles.add(CARGO_SANTUARIO_ID);
+        console.log(`✅ Cargo Santuário concedido.`);
     }
 
-    // --- ATUALIZAÇÃO DO EMBED (Comum para Join e Leave) ---
-    const lista = p.membros.map((mid, i) => `${i + 1}. <@${mid}>`).join('\n');
-    const embedOriginal = interaction.message.embeds[0];
-    if (!embedOriginal) return;
-
-    const newEmbed = EmbedBuilder.from(embedOriginal)
-        .setDescription(`**Horário:** ${p.horario}\n**Membros:** (${p.membros.length}/5)\n${lista}`);
-
-    await interaction.update({ embeds: [newEmbed] });
-});
-
-client.on('messageReactionAdd', async (reaction, user) => {
-    if (user.bot) return;
-    if (reaction.partial) await reaction.fetch();
-
+    // 2. Recrutamento (Corvo 🐦‍⬛)
     const MSG_RECRUTAMENTO_ID = "1466987349555806331";
-    const EMOTE_RECRUTAMENTO = "🐦‍⬛";
     const CARGO_NOVATO_ID = "1466986467397079274";
-
-    if (reaction.message.id === MSG_RECRUTAMENTO_ID && reaction.emoji.name === EMOTE_RECRUTAMENTO) {
+    if (reaction.message.id === MSG_RECRUTAMENTO_ID && reaction.emoji.name === "🐦‍⬛") {
         try {
-            const msgInstrucao = await user.send("🐦‍⬛ **RECRUTAMENTO:** Bem-vindo ao clã! Para ganhar seu cargo, responda a esta mensagem APENAS com o seu **Nome de Família** no jogo.");
-
-            // CORREÇÃO DO ERRO: Forçamos o TS a entender que é um DMChannel
-            const canalDM = msgInstrucao.channel as DMChannel;
-
+            const mInstrucao = await user.send("🐦‍⬛ **RECRUTAMENTO:** Responda APENAS com o seu **Nome de Família** no jogo.");
+            const canalDM = mInstrucao.channel as DMChannel;
             const filter = (m: Message) => m.author.id === user.id;
             const collector = canalDM.createMessageCollector({ filter, max: 1, time: 60000 });
 
             collector.on('collect', async (m: Message) => {
-                const nomeFamilia = m.content;
-                const guild = reaction.message.guild;
-                if (!guild) return;
-
                 const member = await guild.members.fetch(user.id);
                 if (member) {
-                    await member.setNickname(nomeFamilia);
+                    await member.setNickname(m.content);
                     await member.roles.add(CARGO_NOVATO_ID);
-                    await user.send(`✅ Tudo pronto! Seu apelido foi alterado para **${nomeFamilia}** e você agora é um membro oficial.`);
+                    await user.send(`✅ Bem-vindo, **${m.content}**! Você é um membro oficial.`);
                 }
             });
-
-            collector.on('end', (collected) => {
-                if (collected.size === 0) {
-                    user.send("⏰ Tempo esgotado. Reaja novamente no canal de recrutamento para tentar de novo.");
-                }
-            });
-        } catch (e) {
-            console.error("Erro no recrutamento:", e);
-        }
+        } catch (e) { console.error("DM fechada.", e); }
     }
 });
 
+client.on('messageReactionRemove', async (reaction, user) => {
+    if (user.bot || reaction.partial) return;
+    if (reaction.message.id === "1466981759957860619" && reaction.emoji.name === "⛩️") {
+        const guild = client.guilds.cache.get(GUILD_ID);
+        const member = await guild?.members.fetch(user.id);
+        await member?.roles.remove(CARGO_SANTUARIO_ID);
+    }
+});
+
+// --- INTERACTION CREATE (BOTOES) CORRIGIDO ---
+client.on('interactionCreate', async (interaction: Interaction) => {
+    if (!interaction.isButton()) return;
+    const [acao, id] = interaction.customId.split('_');
+
+    // CORREÇÃO DOS ERROS TS2769: Usamos o as string e validação de existência
+    if (!id) return;
+    const p = await PartyModel.findOne({ partyId: id as string });
+    if (!p) return interaction.reply({ content: 'PT não encontrada.', ephemeral: true });
+
+    if (acao === 'leave') {
+        if (interaction.user.id === p.criador) {
+            await PartyModel.deleteOne({ partyId: id as string });
+            return interaction.update({ content: '❌ PT Cancelada.', embeds: [], components: [] });
+        }
+        p.membros = p.membros.filter(mId => mId !== interaction.user.id);
+    } else if (acao === 'join') {
+        if (p.membros.includes(interaction.user.id)) return interaction.reply({ content: 'Já está na PT!', ephemeral: true });
+        if (p.membros.length >= 5) return interaction.reply({ content: 'Lotada!', ephemeral: true });
+        p.membros.push(interaction.user.id);
+    }
+    await p.save();
+
+    const lista = p.membros.map((mid, i) => `${i + 1}. <@${mid}>`).join('\n');
+    const newEmbed = EmbedBuilder.from(interaction.message.embeds[0]!).setDescription(`**Horário:** ${p.horario}\n**Membros:** (${p.membros.length}/5)\n${lista}`);
+    await interaction.update({ embeds: [newEmbed] });
+});
 
 client.login(process.env.DISCORD_TOKEN!);
