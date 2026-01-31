@@ -1,6 +1,7 @@
 import {
     Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder,
-    ButtonBuilder, ButtonStyle, type Message, type Interaction, type TextChannel
+    ButtonBuilder, ButtonStyle, type Message, type Interaction, type TextChannel,
+    Partials
 } from 'discord.js';
 import * as dotenv from 'dotenv';
 import cron from 'node-cron';
@@ -35,9 +36,12 @@ app.listen(Number(port), '0.0.0.0');
 
 const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent, GatewayIntentBits.DirectMessages
-    ]
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.GuildMessageReactions,
+        GatewayIntentBits.MessageContent,
+    ],
+    partials: [Partials.Message, Partials.Reaction, Partials.User],
 });
 
 const SEU_ID_ADMIN = "1088425447760605275";
